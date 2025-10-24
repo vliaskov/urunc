@@ -75,11 +75,15 @@ func runTest(tool testTool, t *testing.T) {
 			// TODO: Add support for matchTest in crictl
 			t.Fatalf("Crictl does not support matchTest")
 		}
+		tool.setContainerID(cntrArgs.Name)
 		output, err := tool.runContainer(false)
 		if err != nil {
+		    cleanuperr := testCleanup(tool)
+		    if cleanuperr != nil {
+			    t.Errorf("Failed to clean up: %v", cleanuperr)
+		    }
 			t.Fatalf("Failed to run unikernel container: %s -- %v", output, err)
 		}
-		tool.setContainerID(cntrArgs.Name)
 		if !strings.Contains(string(output), cntrArgs.ExpectOut) {
 			t.Fatalf("Expected: %s, Got: %s", cntrArgs.ExpectOut, output)
 		}
