@@ -95,8 +95,8 @@ func (u *Unikraft) MonitorBlockCli(_ string) string {
 }
 
 // There are no generic CLI hypervisor options for Unikraft yet.
-func (u *Unikraft) MonitorCli(_ string) string {
-	return ""
+func (u *Unikraft) MonitorCli(_ string) types.MonitorCliArgs {
+	return types.MonitorCliArgs{}
 }
 
 func (u *Unikraft) Init(data types.UnikernelParams) error {
@@ -105,7 +105,7 @@ func (u *Unikraft) Init(data types.UnikernelParams) error {
 	u.AppName = "Unikraft"
 	u.Command = strings.Join(data.CmdLine, " ")
 
-	return u.configureUnikraftArgs(data.RootfsType, data.Net.IP, data.Net.Gateway, data.Net.Mask)
+	return u.configureUnikraftArgs(data.Rootfs.Type, data.Net.IP, data.Net.Gateway, data.Net.Mask)
 }
 
 func (u *Unikraft) configureUnikraftArgs(rootFsType, ethDeviceIP, ethDeviceGateway, ethDeviceMask string) error {

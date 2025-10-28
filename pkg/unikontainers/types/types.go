@@ -21,7 +21,7 @@ type Unikernel interface {
 	SupportsFS(string) bool
 	MonitorNetCli(string, string, string) string
 	MonitorBlockCli(string) string
-	MonitorCli(string) string
+	MonitorCli(string) MonitorCliArgs
 }
 
 type VMM interface {
@@ -60,15 +60,23 @@ type RootfsParams struct {
 	MonRootfs   string // The rootfs for the monitor process
 }
 
+// Specific to Linux
+type ProcessConfig struct {
+	UID     uint32 // The uid of the process inside the guest
+	GID     uint32 // The gid of the process inside the guest
+	WorkDir string // The workdir of the process inside the guest
+}
+
 // UnikernelParams holds the data required to build the unikernels commandline
 type UnikernelParams struct {
 	CmdLine    []string // The cmdline provided by the image
 	EnvVars    []string // The environment variables provided by the image
 	Version    string   // The version of the unikernel
-	RootfsType string   // The rootfs type of the Unikernel
 	InitrdPath string   // The path to the initrd of the unikernel
 	Net        NetDevParams
 	Block      BlockDevParams
+	Rootfs     RootfsParams  // Information about rootfs
+	ProcConf   ProcessConfig // Information for the process execution inside the guest
 }
 
 // ExecArgs holds the data required by Execve to start the VMM
@@ -85,6 +93,11 @@ type ExecArgs struct {
 	Net           NetDevParams
 	Block         BlockDevParams
 	Sharedfs      SharedfsParams
+}
+
+type MonitorCliArgs struct {
+	ExtraInitrd string
+	OtherArgs   string
 }
 
 // HypervisorConfig struct is used to hold hypervisor specific configuration

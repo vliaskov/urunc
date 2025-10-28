@@ -17,13 +17,24 @@ package unikernels
 import (
 	"fmt"
 	"net"
+	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 
+	"github.com/urunc-dev/urunc/pkg/unikontainers/initrd"
 	"github.com/urunc-dev/urunc/pkg/unikontainers/types"
 )
 
-const LinuxUnikernel string = "linux"
+const (
+	LinuxUnikernel   string = "linux"
+	urunitConfPath   string = "/urunit.conf"
+	retainInitrdPath string = "/sys/firmware/initrd"
+	envStartMarker   string = "UES"
+	envEndMarker     string = "UEE"
+	lpcStartMarker   string = "UCS" // Linux process config start marker
+	lpcEndMarker     string = "UCE" // Linux process config end marker
+)
 
 type Linux struct {
 	App        string
@@ -31,6 +42,8 @@ type Linux struct {
 	Env        []string
 	Net        LinuxNet
 	RootFsType string
+	InitrdConf bool
+	ProcConfig types.ProcessConfig
 }
 
 type LinuxNet struct {
@@ -85,11 +98,21 @@ func (l *Linux) CommandString() (string, error) {
 			l.Net.Mask)
 		bootParams += " " + netParams
 	}
+	if !l.InitrdConf {
+		for _, eVar := range l.Env {
+			bootParams += " " + eVar
+		}
+	} else {
+		if l.RootFsType == "initrd" {
+			bootParams += " URUNIT_CONFIG="
+			bootParams += urunitConfPath
+		} else {
+			bootParams += " retain_initrd URUNIT_CONFIG="
+			bootParams += retainInitrdPath
+		}
+	}
 	if !IsIPInSubnet(l.Net) {
 		bootParams += " URUNIT_DEFROUTE=1"
-	}
-	for _, eVar := range l.Env {
-		bootParams += " " + eVar
 	}
 	if l.App != "" {
 		initParams := rdinit + "init=" + l.App + " -- " + l.Command
@@ -135,50 +158,135 @@ func (l *Linux) MonitorBlockCli(monitor string) string {
 	}
 }
 
-func (l *Linux) MonitorCli(monitor string) string {
+func (l *Linux) MonitorCli(monitor string) types.MonitorCliArgs {
 	switch monitor {
 	case "qemu":
-		return " -no-reboot -serial stdio -nodefaults"
+		extraCliArgs := types.MonitorCliArgs{
+			OtherArgs: " -no-reboot -serial stdio -nodefaults",
+		}
+		if l.InitrdConf && l.RootFsType != "initrd" {
+			extraCliArgs.ExtraInitrd = urunitConfPath
+		}
+		return extraCliArgs
+	case "firecracker":
+		if l.InitrdConf && l.RootFsType != "initrd" {
+			return types.MonitorCliArgs{
+				ExtraInitrd: urunitConfPath,
+			}
+		}
+		return types.MonitorCliArgs{}
 	default:
-		return ""
+		return types.MonitorCliArgs{}
 	}
 }
 
 func (l *Linux) Init(data types.UnikernelParams) error {
-	// Handling of args with spaces:
-	// In Linux boot parameters we can not pass multi-word cli arguments
-	// in init, because they are treated as separate cli arguments.
-	// TO overcome this we make a convention with urunit:
-	// 1. We wrap every multi-word cli argument in "'"
-	// 2. When urunit reads such arguments will combine them and
-	//    pass them to the app as one argument.
-	for i, arg := range data.CmdLine {
-		arg = strings.TrimSpace(arg)
-		spaces := strings.Index(arg, " ")
-		if spaces > 0 {
-			data.CmdLine[i] = "'" + arg + "'"
+	err := l.parseCmdLine(data.CmdLine)
+	if err != nil {
+		return err
+	}
+
+	l.configureNetwork(data.Net)
+	l.RootFsType = data.Rootfs.Type
+	l.Env = data.EnvVars
+	l.ProcConfig = data.ProcConf
+
+	// if the application contains urunit, then we assume
+	// that the init process is based on our urunit
+	// and hence it can handle the information we pass to
+	// it through initrd.
+	l.InitrdConf = strings.Contains(l.App, "urunit")
+	if l.InitrdConf {
+		err := l.setupUrunitConfig(data.Rootfs)
+		if err != nil {
+			return err
 		}
 	}
-	// we use the first argument in the cli args as the app name and the
-	// rest as its arguments.
-	switch len(data.CmdLine) {
-	case 0:
-		return fmt.Errorf("No init was specified")
-	case 1:
-		l.App = data.CmdLine[0]
-		l.Command = ""
-	default:
-		l.App = data.CmdLine[0]
-		l.Command = strings.Join(data.CmdLine[1:], " ")
+
+	return nil
+}
+
+// parseCmdLine extracts the application and command from command line arguments.
+// Multi-word arguments are wrapped in single quotes for urunit compatibility.
+func (l *Linux) parseCmdLine(cmdLine []string) error {
+	if len(cmdLine) == 0 {
+		return fmt.Errorf("no init was specified")
 	}
 
-	l.Net.Address = data.Net.IP
-	l.Net.Gateway = data.Net.Gateway
-	l.Net.Mask = data.Net.Mask
+	// Wrap multi-word arguments in quotes for urunit
+	normalizedArgs := make([]string, len(cmdLine))
+	for i, arg := range cmdLine {
+		arg = strings.TrimSpace(arg)
+		if strings.Contains(arg, " ") {
+			normalizedArgs[i] = "'" + arg + "'"
+		} else {
+			normalizedArgs[i] = arg
+		}
+	}
 
-	l.RootFsType = data.RootfsType
-	l.Env = data.EnvVars
+	l.App = normalizedArgs[0]
+	if len(normalizedArgs) > 1 {
+		l.Command = strings.Join(normalizedArgs[1:], " ")
+	} else {
+		l.Command = ""
+	}
+
 	return nil
+}
+
+// configureNetwork sets up network parameters.
+func (l *Linux) configureNetwork(net types.NetDevParams) {
+	l.Net.Address = net.IP
+	l.Net.Gateway = net.Gateway
+	l.Net.Mask = net.Mask
+}
+
+// setupUrunitConfig creates the urunit configuration file with environment variables.
+func (l *Linux) setupUrunitConfig(rfs types.RootfsParams) error {
+	urunitConfig := l.buildUrunitConfig()
+
+	var err error
+	if l.RootFsType == "initrd" {
+		initrdToUpdate := filepath.Join(rfs.MonRootfs, rfs.Path)
+		err = initrd.AddFileToInitrd(initrdToUpdate, urunitConfig, urunitConfPath)
+	} else {
+		urunitConfigFile := filepath.Join(rfs.MonRootfs, urunitConfPath)
+		err = createFile(urunitConfigFile, urunitConfig)
+	}
+
+	if err != nil {
+		return fmt.Errorf("failed to setup urunit config: %w", err)
+	}
+
+	return nil
+}
+
+// buildEnvConfig creates the environment configuration content for urunit.
+func (l *Linux) buildUrunitConfig() string {
+	// Format: UES\n<env1>\n<env2>\n...\nUEE\n
+	var sb strings.Builder
+	sb.WriteString(envStartMarker)
+	sb.WriteString("\n")
+	if len(l.Env) > 0 {
+		sb.WriteString(strings.Join(l.Env, "\n"))
+		sb.WriteString("\n")
+	}
+	sb.WriteString(envEndMarker)
+	sb.WriteString("\n")
+	sb.WriteString(lpcStartMarker)
+	sb.WriteString("\n")
+	sb.WriteString("UID:")
+	sb.WriteString(strconv.FormatUint(uint64(l.ProcConfig.UID), 10))
+	sb.WriteString("\n")
+	sb.WriteString("GID:")
+	sb.WriteString(strconv.FormatUint(uint64(l.ProcConfig.GID), 10))
+	sb.WriteString("\n")
+	sb.WriteString("WD:")
+	sb.WriteString(l.ProcConfig.WorkDir)
+	sb.WriteString("\n")
+	sb.WriteString(lpcEndMarker)
+	sb.WriteString("\n")
+	return sb.String()
 }
 
 func newLinux() *Linux {

@@ -33,6 +33,7 @@ import (
 
 	"github.com/urunc-dev/urunc/pkg/network"
 	"github.com/urunc-dev/urunc/pkg/unikontainers/hypervisors"
+	"github.com/urunc-dev/urunc/pkg/unikontainers/initrd"
 	"github.com/urunc-dev/urunc/pkg/unikontainers/types"
 	"github.com/urunc-dev/urunc/pkg/unikontainers/unikernels"
 	"github.com/vishvananda/netlink/nl"
@@ -267,12 +268,18 @@ func (u *Unikontainer) Exec(metrics m.Writer) error {
 		vmmArgs.Seccomp = false
 	}
 
+	procAttrs := types.ProcessConfig{
+		UID:     u.Spec.Process.User.UID,
+		GID:     u.Spec.Process.User.GID,
+		WorkDir: u.Spec.Process.Cwd,
+	}
 	// UnikernelParams
 	// populate unikernel params
 	unikernelParams := types.UnikernelParams{
-		CmdLine: u.Spec.Process.Args,
-		EnvVars: u.Spec.Process.Env,
-		Version: unikernelVersion,
+		CmdLine:  u.Spec.Process.Args,
+		EnvVars:  u.Spec.Process.Env,
+		Version:  unikernelVersion,
+		ProcConf: procAttrs,
 	}
 	if len(unikernelParams.CmdLine) == 0 {
 		unikernelParams.CmdLine = strings.Fields(u.State.Annotations[annotCmdLine])
@@ -339,6 +346,13 @@ func (u *Unikontainer) Exec(metrics m.Writer) error {
 			uniklog.Errorf("could not setup block based rootfs: %v", err)
 			return err
 		}
+	case "initrd":
+		initrdHostFullPath := filepath.Join(rootfsParams.MonRootfs, rootfsParams.Path)
+		err = initrd.CopyFileMountsToInitrd(initrdHostFullPath, u.Spec.Mounts)
+		if err != nil {
+			uniklog.Errorf("could not update guest's initrd: %v", err)
+			return err
+		}
 	case "virtiofs":
 		tmpfsSize = chooseTmpfsSize(vmmArgs.MemSizeB)
 		fallthrough
@@ -355,7 +369,7 @@ func (u *Unikontainer) Exec(metrics m.Writer) error {
 	default:
 		uniklog.Debug("No rootfs for guest")
 	}
-	unikernelParams.RootfsType = rootfsParams.Type
+	unikernelParams.Rootfs = rootfsParams
 
 	err = createTmpfs(rootfsParams.MonRootfs, "/tmp",
 		unix.MS_NOSUID|unix.MS_NOEXEC|unix.MS_STRICTATIME,
@@ -435,7 +449,7 @@ func (u *Unikontainer) Exec(metrics m.Writer) error {
 	}
 
 	// virtiofs
-	if unikernelParams.RootfsType == "virtiofs" {
+	if rootfsParams.Type == "virtiofs" {
 		// Start the virtiofsd process
 		err = spawnVirtiofsd(containerRootfsMountPath)
 		if err != nil {
