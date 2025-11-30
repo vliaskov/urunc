@@ -31,6 +31,45 @@ import (
 	"github.com/vishvananda/netns"
 )
 
+// Constants for rlimit tests
+/*var rlimitsDesc []string {
+	"Max cpu time",
+	"Max file size",
+	"Max data size",
+	"Max stack size",
+	"Max core file size",
+	"Max resident set",
+	"Max processes",
+    "Max open files",
+    "Max locked memory",
+    "Max address space",
+    "Max file locks",
+    "Max pending signals", 
+    "Max msgqueue size",
+    "Max nice priority",
+    "Max irealtime priority",
+    "Max realtime timout"
+}
+
+var rlimitsIndex []string {
+	"RLIMIT_CPU",
+	"RLIMIT_FSIZE",
+	"RLIMIT_DATA",
+	"RLIMIT_STACK",
+	"RLIMIT_CORE",
+	"RLIMIT_RSS",
+	"RLIMIT_NPROC",
+	"RLIMIT_NOFILE",
+	"RLIMIT_MEMLOCK",
+	"RLIMIT_AS",
+	"RLIMIT_LOCKS",
+	"RLIMIT_SIGPENDING",
+	"RLIMIT_MSGQUEUE",
+	"RLIMIT_NICE",
+	"RLIMIT_RTPRIO",
+	"RLIMIT_RTTIME"
+}*/
+
 var matchTest testMethod
 
 func userGroupTest(tool testTool) error {
@@ -96,6 +135,50 @@ func userGroupTest(tool testTool) error {
 			}
 		}
 	}
+
+	return nil
+}
+
+func rlimitsTest(tool testTool) error {
+	args := tool.getTestArgs()
+	var unikernelPID string
+	var err error
+	if tool.Name() == "crictl" {
+		unikernelPID, err = tool.inspectCAndGet("pid")
+	} else {
+		unikernelPID, err = tool.inspectCAndGet("Pid")
+	}
+	if err != nil {
+		return fmt.Errorf("Failed to extract unikernel PID: %v", err)
+	}
+	procPath := "/proc/" + unikernelPID + "/limits"
+
+	rlimitLine, err := findLineInFile(procPath, "Max open files")
+	if err != nil {
+		return err
+	}
+	rlimit, err := getAndCheckLimits(rlimitLine, "Max open files")
+	if err != nil {
+		return err
+	}
+
+    if (rlimit != args.rlimit_NOFILE) {
+	    return fmt.Errorf("Mismatch in rlimit %s Got: %d should be %d", "Max open files", rlimit, args.rlimit_NOFILE)// s[i])
+    }
+    /*for i, element := range  {
+
+	rlimitLine, err := findLineInFile(procPath, rlimitsDesc[i])
+	if err != nil {
+		return err
+	}
+	rlimit, err := getAndCheckLimits(rlimitLine, rlimitsDesc[i])
+	if err != nil {
+		return err
+	}
+
+      if (rlimit != args.rlimits[i])
+			return fmt.Errorf("Mismatch in rlimit %s Got: %d should be %d", rlimitsDesc[i], rlimit, args.rlimits[i])
+    }*/
 
 	return nil
 }

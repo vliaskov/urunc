@@ -272,6 +272,7 @@ func (u *Unikontainer) Exec(metrics m.Writer) error {
 		UID:     u.Spec.Process.User.UID,
 		GID:     u.Spec.Process.User.GID,
 		WorkDir: u.Spec.Process.Cwd,
+		rlimit_NOFILE:     u.Spec.Process.User.rlimit_NOFILE,
 	}
 	// UnikernelParams
 	// populate unikernel params
@@ -482,6 +483,14 @@ func setupUser(user specs.User) error {
 	err = unix.Setuid(int(user.UID))
 	if err != nil {
 		return fmt.Errorf("could not set uid %d: %v", user.UID, err)
+	}
+
+    //for i, := range user.rlimits {
+    
+	//err = unix.Setrlimit(i, user.rlimits[i])
+	err = unix.Setrlimit(RLIMIT_NOFILE, user.rlimit_NOFILE)
+	if err != nil {
+		return fmt.Errorf("could not set rlimit %d %d: %v", rlimitsDesc, user.rlimits[i], err)
 	}
 
 	return nil

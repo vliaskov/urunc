@@ -166,6 +166,14 @@ func getAndCheckUGid(line string) (int, error) {
 	return strconv.Atoi(ids[0])
 }
 
+func getAndCheckLimits(line string, rlimitDescription string) (int, error) {
+	descWords := strings.Split(rlimitDescription, " ")
+	vals := strings.Split(line, " ")
+    // return softlimit
+	//fmt.Errorf("Rlimit %s read: %d", rlimitDescription, vals[len(descWords)])
+	return strconv.Atoi(vals[len(descWords)])
+}
+
 func findLineInFile(filePath string, pattern string) (string, error) {
 	file, err := os.Open(filePath)
 	if err != nil {

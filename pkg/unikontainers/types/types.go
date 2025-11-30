@@ -65,6 +65,23 @@ type ProcessConfig struct {
 	UID     uint32 // The uid of the process inside the guest
 	GID     uint32 // The gid of the process inside the guest
 	WorkDir string // The workdir of the process inside the guest
+    rlimits       [16]uint32
+	rlimit_NOFILE uint32 // The 
+	/*rlimit_AS     uint32 // The 
+	rlimit_CORE   uint32 // The 
+	rlimit_CPU    uint32 // The 
+	rlimit_DATA   uint32 // The 
+	rlimit_FSIZE  uint32 // The 
+	rlimit_LOCKS  uint32 // The 
+	rlimit_MEMLOCK  uint32 // The 
+	rlimit_MSGQUEUE uint32 // The 
+	rlimit_NICE   uint32 // The 
+	rlimit_NOFILE uint32 // The 
+	rlimit_NPROC  uint32 // The 
+	rlimit_RSS  uint32 // The 
+	rlimit_RTPRIO  uint32 // The 
+	rlimit_RTTIME  uint32 // The 
+	rlimit_STACK  uint32 // The */
 }
 
 // UnikernelParams holds the data required to build the unikernels commandline

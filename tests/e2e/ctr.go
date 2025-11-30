@@ -98,6 +98,7 @@ func (i *ctrInfo) createContainer() (string, error) {
 	cmdBase := ctrName
 	cmdBase += " c create "
 	cmdBase += ctrNewContainerCmd(i.testArgs)
+	fmt.Errorf("Creating container with args: %s", i.containerID)
 	return commonCmdExec(cmdBase)
 }
 

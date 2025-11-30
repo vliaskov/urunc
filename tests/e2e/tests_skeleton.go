@@ -31,6 +31,7 @@ type containerTestArgs struct {
 	Seccomp        bool
 	UID            int
 	GID            int
+	rlimit_NOFILE  int
 	Groups         []int64
 	Memory         string
 	Cli            string
@@ -113,7 +114,7 @@ func runTest(tool testTool, t *testing.T) {
 	t.Cleanup(func() {
 		err = tool.rmContainer()
 		if err != nil {
-			t.Errorf("Failed to remove container: %s - %v", cntrArgs.Image, err)
+			t.Errorf("Failed to remove container: id %s message %s - %v", cID, cntrArgs.Image, err)
 		}
 		err = testVerifyRm(tool)
 		if err != nil {
@@ -123,7 +124,7 @@ func runTest(tool testTool, t *testing.T) {
 	})
 	output, err := tool.startContainer(true)
 	if err != nil {
-		t.Fatalf("Failed to start unikernel container: %s - %v", output, err)
+		t.Fatalf("Failed to start unikernel container: id %s message %s - %v", cID, output, err)
 	}
 	t.Cleanup(func() {
 		err = tool.stopContainer()
